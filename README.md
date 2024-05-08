@@ -1,2 +1,2 @@
 # pySFTP
- Demo project to try making my own SFTP on Python.
+ Demo project to making my own SFTP on Python, using DES.
