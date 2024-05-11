@@ -33,7 +33,7 @@ def send_file(conn, filename, keyuser):
                 encrypted_data = encrypt(keyuser[0], data)
                 conn.send(encrypted_data)
     except FileNotFoundError:
-        conn.send(encrypt('FILE_NOT_FOUND', keyuser[0]))
+        conn.send(encrypt(keyuser[0], 'FILE_NOT_FOUND'.encode()))
         print(f'{keyuser[1]} tried to receive {filename} with error: FILE_NOT_FOUND')
     
     conn.send(b'EOF')

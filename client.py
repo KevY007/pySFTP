@@ -54,6 +54,13 @@ def download_file(conn, keyuser, filename):
 
         data = decrypt(keyuser[0], chunk)
 
+        try:
+            if data.decode() == 'FILE_NOT_FOUND':
+                print("ERROR: FILE_NOT_FOUND! (In the server)")
+                return
+        except:
+            pass
+
         with open(os.path.join('downloads', filename), 'ab') as f:
             f.write(data)
 
