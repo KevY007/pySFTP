@@ -1,25 +1,63 @@
 import socket
 import os
 import secrets
-from pyDes import des, PAD_PKCS5
+from pyDes import des, PAD_PKCS5, PAD_NORMAL
 import base64
 
-def pad_data(data):
-    pad_len = 8 - (len(data) % 8)
-    return data + bytes([pad_len] * pad_len)
-
 def encrypt(key, message):
-    k = des(bytes.fromhex(key), PAD_PKCS5)
-    # Pad the message to make its length a multiple of 8
-    padded_message = pad_data(message)
-    encrypted_message = k.encrypt(padded_message)
+    k = des(bytes.fromhex(key), padmode=PAD_PKCS5)
+    encrypted_message = k.encrypt(message)
     return base64.b64encode(encrypted_message)
 
 def decrypt(key, encrypted_message):
-    k = des(bytes.fromhex(key), PAD_PKCS5)
-    encrypted_message = base64.b64decode(encrypted_message)
-    decrypted_message = k.decrypt(encrypted_message)
+    k = des(bytes.fromhex(key), padmode=PAD_PKCS5)
+    decrypted_message = k.decrypt(base64.b64decode(encrypted_message))
     return decrypted_message
+
+def receive_file_list(conn, keyuser):
+    files = []
+    receive = True
+    while receive:
+        file = conn.recv(1024)
+
+        if file == b'EOF':
+            receive = False
+            break
+        elif file.endswith(b'EOF'):
+            file = file[:-3]
+            receive = False
+
+        if file:
+            files.append(decrypt(keyuser[0], file).decode())
+
+    return files
+
+def download_file(conn, keyuser, filename):
+    data = b''
+    
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+
+    if os.path.exists(os.path.join('downloads', filename)):
+        os.remove(os.path.join('downloads', filename))
+    
+    receive = True
+    while receive:
+        chunk = conn.recv(1024)
+
+        if chunk == b'EOF':
+            receive = False
+            break
+        elif chunk.endswith(b'EOF'):
+            chunk = chunk[:-3] # Remove EOF
+            receive = False
+
+        data = decrypt(keyuser[0], chunk)
+
+        with open(os.path.join('downloads', filename), 'ab') as f:
+            f.write(data)
+
+    print(f"{filename} downloaded successfully")
 
 def main():
     host = input("Enter target host => ")
@@ -30,27 +68,35 @@ def main():
         print("Connected to server, handshaking...")
 
         keyfile = f'{host.replace(".", "")}_{port}.key'
-        key = [secrets.token_hex(8), os.getlogin()]
+        keyuser = [secrets.token_hex(8), os.getlogin()]
 
         if os.path.exists(keyfile):
             with open(keyfile, 'r') as file:
-                key = file.read().split(':')
+                keyuser = file.read().split(':')
         else:
             print("Generating new key...")
             id = input(f"Enter your unique identifier (empty defaults to '{os.getlogin()}') => ")
             if not id:
                 id = os.getlogin()
 
-            key[1] = id
+            keyuser[1] = id
 
             with open(keyfile, 'w') as file:
-                file.write(f':'.join(key))
+                file.write(f':'.join(keyuser))
 
         print("Authenticating with key...")
-        s.send(("AUTH" + f':'.join(key)).encode())
+        s.send(("AUTH" + f':'.join(keyuser)).encode())
         
         auth_response = s.recv(1024).decode()
-        print(auth_response)
+        try:
+            decryptedresp = decrypt(keyuser[0], auth_response).decode()
+            print(decryptedresp)
+            if decryptedresp != "Authenticated":
+                raise ConnectionError()
+        except:
+            print("Failed to authenticate!")
+            s.close()
+            return
 
         while True:
 
@@ -58,21 +104,19 @@ def main():
             choice = input("Enter your choice: ")
 
             if choice == '1':
-                 s.send(encrypt(key[0], 'LIST'.encode()))
-                 files = decrypt(key[0], s.recv(1024))
-                 print("Files on server:")
+                 print('Requesting file list:')
+
+                 s.send(encrypt(keyuser[0], 'LIST'.encode()))
+                 files = receive_file_list(s, keyuser)
+
+                 print("Filelist received:")
                  print(files)
             elif choice == '2':
                 filename = input("Enter filename to download: ")
 
-                s.send(encrypt(key[0], f'GET {filename}'.encode()))
-                data = decrypt(key[0], s.recv(1024)).decode()
-                if data == b'File not found':
-                    print("File not found on server")
-                else:
-                    with open(filename, 'w') as f:
-                        f.write(data)
-                    print(f"{filename} downloaded successfully")
+                print(f'Requesting file: {filename}')
+                s.send(encrypt(keyuser[0], f'GET {filename}'.encode()))
+                download_file(s, keyuser, filename)
             elif choice == '3':
                 break
             else:
