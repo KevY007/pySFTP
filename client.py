@@ -1,8 +1,9 @@
 import socket
 import os
 import secrets
-from pyDes import des, PAD_PKCS5, PAD_NORMAL
+from pyDes import des, PAD_PKCS5
 import base64
+from inputimeout import inputimeout
 
 def encrypt(key, message):
     k = des(bytes.fromhex(key), padmode=PAD_PKCS5)
@@ -82,14 +83,17 @@ def main():
                 keyuser = file.read().split(':')
         else:
             print("Generating new key...")
-            id = input(f"Enter your unique identifier (empty defaults to '{os.getlogin()}') => ")
+
+            id = os.getlogin()
+            try: 
+                id = inputimeout(prompt=f"Enter your unique identifier (defaults to '{os.getlogin()}' in 10s) => ", timeout=10)
+            except Exception: 
+                id = os.getlogin()
+
             if not id:
                 id = os.getlogin()
 
             keyuser[1] = id
-
-            with open(keyfile, 'w') as file:
-                file.write(f':'.join(keyuser))
 
         print("Authenticating with key...")
         s.send(("AUTH" + f':'.join(keyuser)).encode())
@@ -100,6 +104,11 @@ def main():
             print(decryptedresp)
             if decryptedresp != "Authenticated":
                 raise ConnectionError()
+            
+            if not os.path.exists(keyfile):
+                with open(keyfile, 'w') as file:
+                    file.write(f':'.join(keyuser))
+                    print('Key file created!')
         except:
             print("Failed to authenticate!")
             s.close()

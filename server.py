@@ -1,8 +1,10 @@
 import socket
 import os
-from pyDes import des, PAD_PKCS5, PAD_NORMAL
+from pyDes import des, PAD_PKCS5
 import base64
-import random
+from inputimeout import inputimeout
+
+authed = False
 
 def encrypt(key, message):
     k = des(bytes.fromhex(key), padmode=PAD_PKCS5)
@@ -39,7 +41,7 @@ def send_file(conn, filename, keyuser):
     conn.send(b'EOF')
 
 def handle_client(conn, addr):
-    authed = False
+    global authed
     while True:
         request = conn.recv(1024)
     
@@ -60,14 +62,23 @@ def handle_client(conn, addr):
 
                         if read != keyuser[0]:
                             print(f"Invalid key for {keyuser[1]}, disconnecting {addr}!")
-                            conn.send('Failed to auth: WRONG KEY OR CHANGE USERNAME'.encode())
+                            conn.send('Failed to auth: WRONG_KEY_OR_USERNAME'.encode())
                             conn.close()
                             break
                 else:
-                    with open(keyfile, 'w') as file:
-                        print(f"New key file added: {keyfile} from {keyuser[1]} at {addr}")
-                        file.write(keyuser[0])
-                
+                    try: 
+                        if inputimeout(prompt=f"To add & auth new user {keyuser[1]} enter 'yes' within 10s: ", timeout=10) == 'yes':
+                             with open(keyfile, 'w') as file:
+                                print(f"New key file added: {keyfile} from {keyuser[1]} at {addr}")
+                                file.write(keyuser[0])
+                        else:
+                            raise Exception()
+                    except Exception: 
+                        conn.send('Failed to auth: NOT_REGISTERED'.encode())
+                        conn.close()
+                        print(f'{keyuser[1]} at {addr} was denied authentication')
+                        return
+
                 authed = True
                 
                 conn.send(encrypt(keyuser[0], 'Authenticated'.encode()))
@@ -86,6 +97,7 @@ def handle_client(conn, addr):
     conn.close()
 
 def main():
+    global authed
     host = '127.0.0.1'
     port = int(input('Enter listen port => '))
 
@@ -95,6 +107,8 @@ def main():
         print(f"Server listening on {host}:{port}")
 
         while True:
+            print('\nWaiting for connection...')
+            authed = False
             conn, addr = s.accept()
             print(f"Incoming connection from {addr}, waiting for handshake...")
             handle_client(conn, addr)
