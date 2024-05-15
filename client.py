@@ -1,6 +1,4 @@
-import socket
-import os
-import secrets
+import os, time, socket, secrets, base64
 from pyDes import des, PAD_PKCS5
 import base64
 from inputimeout import inputimeout
@@ -33,7 +31,7 @@ def receive_file_list(conn, keyuser):
 
     return files
 
-def download_file(conn, keyuser, filename):
+def download_file(conn, filename, keyuser):
     data = b''
     
     if not os.path.exists('downloads'):
@@ -66,6 +64,22 @@ def download_file(conn, keyuser, filename):
             f.write(data)
 
     print(f"{filename} downloaded successfully")
+    
+def send_file(conn, filename, keyuser):
+    try:
+        with open(filename, 'rb') as f:
+            while True:
+                data = f.read(512)
+                if not data:
+                    break
+                encrypted_data = encrypt(keyuser[0], data)
+                conn.send(encrypted_data)
+    except FileNotFoundError:
+        conn.send(encrypt(keyuser[0], 'FILE_NOT_FOUND'.encode()))
+        print(f'Tried to send {filename} with error: FILE_NOT_FOUND')
+    
+    conn.send(b'EOF')
+    print(f'{filename} sent to server!')
 
 def main():
     host = input("Enter target host => ")
@@ -95,7 +109,7 @@ def main():
 
             keyuser[1] = id
 
-        print("Authenticating with key...")
+        print(f"Authenticating with '{keyfile}'")
         s.send(("AUTH" + f':'.join(keyuser)).encode())
         
         auth_response = s.recv(1024).decode()
@@ -116,7 +130,7 @@ def main():
 
         while True:
 
-            print("\n1. List files on server\n2. Download file\n3. Quit")
+            print("\n1. List files on server\n2. Download file\n3. Send file\n4. Quit")
             choice = input("Enter your choice: ")
 
             if choice == '1':
@@ -132,11 +146,27 @@ def main():
 
                 print(f'Requesting file: {filename}')
                 s.send(encrypt(keyuser[0], f'GET {filename}'.encode()))
-                download_file(s, keyuser, filename)
+                download_file(s, filename, keyuser)
             elif choice == '3':
+                files = os.listdir('.')
+                print(files)
+                
+                filename = input("Enter filename to send: ")
+
+                if not os.path.exists(filename):
+                    print("Invalid file!")
+                    time.sleep(2)
+                    continue
+
+                print(f"Sending file '{filename}' to server...")
+                s.send(encrypt(keyuser[0], f'POST {filename}'.encode()))
+                send_file(s, filename, keyuser)
+            elif choice == '4':
                 break
             else:
                 print("Invalid choice")
+
+            time.sleep(1)
 
 if __name__ == "__main__":
     main()

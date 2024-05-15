@@ -39,6 +39,38 @@ def send_file(conn, filename, keyuser):
         print(f'{keyuser[1]} tried to receive {filename} with error: FILE_NOT_FOUND')
     
     conn.send(b'EOF')
+    
+   
+def receive_file(conn, filename, keyuser):
+    print(f"Receiving '{filename}' from: {keyuser[1]}")
+    
+    data = b''
+
+    if os.path.exists(filename):
+        os.remove(filename)
+    
+    receive = True
+    while receive:
+        chunk = conn.recv(1024)
+
+        if chunk == b'EOF':
+            receive = False
+            break
+        elif chunk.endswith(b'EOF'):
+            chunk = chunk[:-3] # Remove EOF
+            receive = False
+
+        data = decrypt(keyuser[0], chunk)
+
+        try:
+            if data.decode() == 'FILE_NOT_FOUND':
+                print("ERROR: FILE_NOT_FOUND! (In the client)")
+                return
+        except:
+            pass
+
+        with open(filename, 'ab') as f:
+            f.write(data)
 
 def handle_client(conn, addr):
     global authed
@@ -93,6 +125,10 @@ def handle_client(conn, addr):
                 filename = request.split()[1]
                 send_file(conn, filename, keyuser)
                 print("Sent!")
+            elif request.startswith('POST'):
+                filename = request.split()[1]
+                receive_file(conn, filename, keyuser)
+                print("Received!")   
                 
     conn.close()
 
